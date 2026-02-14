@@ -1,142 +1,78 @@
+# 📌 Smart Bookmarks
 
-# Smart Bookmarks
+A real-time bookmark manager built with **Next.js**, **Supabase**, and **TypeScript**.  
+Add and delete bookmarks instantly — changes sync across all open browser tabs without needing a refresh.
 
-A real-time bookmark manager built with Next.js, Supabase, and TypeScript.
-You can add and delete bookmarks instantly, and changes sync across all open browser tabs without needing a refresh.
+🔗 **Live Demo:** [smart-bookmark-app-rashal.vercel.app](https://smart-bookmark-app-rashal.vercel.app)
 
-## Features
+---
 
-* Google OAuth authentication
-* Real-time bookmark updates
-* Instant sync across multiple tabs
-* Automatic favicon preview
-* Responsive dark UI
-* Clean and simple user experience
+## ✨ Features
 
-##  Challenges Faced & Solutions
+- Google OAuth authentication
+- Real-time bookmark updates
+- Instant sync across multiple tabs
+- Automatic favicon preview
+- Responsive clean UI
+- Simple and fast user experience
 
-While building the realtime functionality, I ran into a few issues that are common when working with Supabase Realtime and PostgreSQL replication. Here’s what happened and how each problem was solved.
+---
 
-### Problem 1 — INSERT did not update other tabs in real-time
+## 🛠 Tech Stack
 
-Issue
+| Technology | Purpose |
+|---|---|
+| Next.js 16 (App Router) | Frontend framework |
+| Supabase | Database, Auth, Realtime |
+| TypeScript | Type safety |
+| Tailwind CSS | Styling |
+| Vercel | Deployment |
 
-When adding a bookmark in one tab, other open tabs didn’t receive the update unless the page was refreshed. However, DELETE actions worked correctly in real-time.
+---
 
-Reason
+## 📦 Getting Started
 
-PostgreSQL’s replication stream sends minimal data by default.
-DELETE events work because only the row ID is needed, but INSERT events require full row data. Since the full data wasn’t being broadcast, other tabs received empty payloads.
+```bash
+npm install
+npm run dev
+```
 
-Solution
+Create a `.env` file in the root:
 
-Enable full row broadcasting:
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+```
 
-sql
+---
+
+## 🗄️ Required SQL Setup
+
+Run once in the Supabase SQL editor:
+
+```sql
 ALTER TABLE bookmarks REPLICA IDENTITY FULL;
 
+ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
 
-This ensures all column data is sent during INSERT and UPDATE events, allowing other tabs to immediately display new bookmarks.
+CREATE POLICY "insert_policy" ON bookmarks
+FOR INSERT TO authenticated
+WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "select_policy" ON bookmarks
+FOR SELECT TO authenticated
+USING (auth.uid() = user_id);
 
-### Problem 2 — Realtime publication error
-
-Issue
-
-Running:
-
-sql
-ALTER PUBLICATION supabase_realtime ADD TABLE bookmarks;
-
-
-resulted in an error.
-
-Reason
-
-Supabase’s default realtime publication already includes all tables (`FOR ALL TABLES`). Individual tables cannot be added manually.
-
-Solution
-
-No change was required. The table was already included — the real issue was the replica identity setting.
+CREATE POLICY "delete_policy" ON bookmarks
+FOR DELETE TO authenticated
+USING (auth.uid() = user_id);
+```
 
 ---
 
-### Problem 3 — Stale Supabase client broke realtime updates
+## ⚙️ Final Realtime Setup
 
-Issue
-
-Even after fixing replication settings, INSERT events were inconsistent. The subscription appeared active but events were not received reliably.
-
-Reason
-
-The Supabase client was stored inside a `useRef`, creating a single frozen instance. The realtime subscription captured a stale client reference.
-
-typescript
-const supabaseRef = useRef(createClient())
-
-
-Solution
-
-Create a fresh client inside `useEffect` for realtime subscriptions:
-
-typescript
-useEffect(() => {
-  const realtimeClient = createClient()
-}, [user.id])
-
-
-This ensures an active and up-to-date connection.
-
----
-
-### Problem 4 — Static channel name caused conflicts
-
-Issue
-
-Using a static channel name caused inconsistent behavior when multiple tabs were open.
-
-typescript
-.channel('bookmarks-channel')
-
-
-Reason
-
-All tabs shared the same channel identifier, which caused subscription conflicts.
-
-Solution
-
-Use a user-scoped channel name:
-
-typescript
-.channel(`bookmarks:${user.id}`)
-
-
-Each user gets an isolated realtime channel, avoiding interference between tabs.
-
----
-
-###  Problem 5 — Single event handler was unreliable
-
-Issue
-
-Handling all events using `event: '*'` made INSERT handling inconsistent.
-
-Solution
-
-Use separate handlers for each event type:
-
-typescript
-.on('postgres_changes', { event: 'INSERT', ... }, handler)
-.on('postgres_changes', { event: 'DELETE', ... }, handler)
-
-
-This makes the logic cleaner and more predictable.
-
----
-
-##  Final Realtime Setup
-
-typescript
+```typescript
 useEffect(() => {
   if (!user?.id) return
 
@@ -177,57 +113,205 @@ useEffect(() => {
     realtimeClient.removeChannel(channel)
   }
 }, [user.id])
-
+```
 
 ---
 
-## 🗄️ Required SQL Setup
+## 🐛 Challenges Faced & Solutions
 
-Run once in Supabase SQL editor:
+Building this app involved debugging several real-world issues across realtime, auth, and deployment. Here's what happened and how each was solved.
 
-sql
+---
+
+### Problem 1 — INSERT did not update other tabs in real-time
+
+**Issue**
+
+When adding a bookmark in one tab, other open tabs didn't receive the update unless the page was refreshed. DELETE actions worked correctly in real-time.
+
+**Reason**
+
+PostgreSQL's replication stream sends minimal data by default. DELETE events work because only the row ID is needed, but INSERT events require full row data. Since the full data wasn't being broadcast, other tabs received empty payloads.
+
+**Solution**
+
+Enable full row broadcasting:
+
+```sql
 ALTER TABLE bookmarks REPLICA IDENTITY FULL;
+```
 
-ALTER TABLE bookmarks ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "insert_policy" ON bookmarks
-FOR INSERT TO authenticated
-WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "select_policy" ON bookmarks
-FOR SELECT TO authenticated
-USING (auth.uid() = user_id);
-
-CREATE POLICY "delete_policy" ON bookmarks
-FOR DELETE TO authenticated
-USING (auth.uid() = user_id);
-
+This ensures all column data is sent during INSERT and UPDATE events, allowing other tabs to immediately display new bookmarks.
 
 ---
 
-##  Tech Stack
+### Problem 2 — Realtime publication error
 
-* Next.js 14 (App Router)
-* Supabase (Database, Auth, Realtime)
-* TypeScript
-* Tailwind CSS
+**Issue**
+
+Running:
+
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE bookmarks;
+```
+
+resulted in an error.
+
+**Reason**
+
+Supabase's default realtime publication already includes all tables (`FOR ALL TABLES`). Individual tables cannot be added manually.
+
+**Solution**
+
+No change was required. The table was already included — the real issue was the replica identity setting described in Problem 1.
 
 ---
 
-## 📦 Getting Started
+### Problem 3 — Stale Supabase client broke realtime updates
 
-bash
-npm install
-npm run dev
+**Issue**
 
+Even after fixing replication settings, INSERT events were inconsistent. The subscription appeared active but events were not received reliably.
 
-Create a `.env.local` file:
+**Reason**
 
+The Supabase client was stored inside a `useRef`, creating a single frozen instance. The realtime subscription captured a stale client reference.
 
-NEXT_PUBLIC_SUPABASE_URL=your_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+```typescript
+const supabaseRef = useRef(createClient()) // ❌ stale reference
+```
 
+**Solution**
 
+Create a fresh client inside `useEffect` for realtime subscriptions:
 
+```typescript
+useEffect(() => {
+  const realtimeClient = createClient() // ✅ fresh client
+}, [user.id])
+```
 
-If you want, I can also make this GitHub-ready (high-star style README) or portfolio-ready since you’re running an IT agency and this fits nicely as a real-time product demo.
+---
+
+### Problem 4 — Static channel name caused conflicts
+
+**Issue**
+
+Using a static channel name caused inconsistent behavior when multiple tabs were open.
+
+```typescript
+.channel('bookmarks-channel') // ❌ shared across all tabs
+```
+
+**Reason**
+
+All tabs shared the same channel identifier, which caused subscription conflicts.
+
+**Solution**
+
+Use a user-scoped channel name:
+
+```typescript
+.channel(`bookmarks:${user.id}`) // ✅ isolated per user
+```
+
+---
+
+### Problem 5 — Single event handler was unreliable
+
+**Issue**
+
+Handling all events using `event: '*'` made INSERT handling inconsistent.
+
+**Solution**
+
+Use separate handlers for each event type:
+
+```typescript
+.on('postgres_changes', { event: 'INSERT', ... }, handler)
+.on('postgres_changes', { event: 'DELETE', ... }, handler)
+```
+
+This makes the logic cleaner and more predictable.
+
+---
+
+### Problem 6 — Google OAuth redirecting to localhost in production
+
+**Issue**
+
+After deploying to Vercel, clicking "Continue with Google" redirected back to `localhost:3000/?code=XXXX` instead of the production URL. Login worked locally but completely failed in production.
+
+**Reasons**
+
+Three things were misconfigured:
+
+1. Supabase **Site URL** was set to `http://localhost:3000` instead of the Vercel URL
+2. No **Redirect URLs** were added in Supabase URL Configuration
+3. The proxy file was named `middleware.ts` instead of `proxy.ts` (required in Next.js 16)
+
+**Solution**
+
+In Supabase → Authentication → URL Configuration:
+
+- Set **Site URL** to:
+  ```
+  https://smart-bookmark-app-rashal.vercel.app
+  ```
+- Add **Redirect URLs**:
+  ```
+  https://smart-bookmark-app-rashal.vercel.app/auth/callback
+  http://localhost:3000/auth/callback
+  ```
+
+Rename `middleware.ts` → `proxy.ts` and update the exported function name from `middleware` to `proxy` for Next.js 16 compatibility:
+
+```typescript
+// ❌ Next.js 15 and below
+export async function middleware(request: NextRequest) {}
+
+// ✅ Next.js 16+
+export async function proxy(request: NextRequest) {}
+```
+
+---
+
+## 📁 Project Structure
+
+```
+app/
+├── auth/callback/
+│   └── route.ts        # Handles OAuth callback
+├── login/
+│   └── page.tsx        # Login page
+├── page.tsx            # Home (protected)
+└── layout.tsx
+components/
+├── BookmarkList.tsx     # Main bookmark UI + realtime
+└── Footer.tsx
+utils/supabase/
+├── client.ts           # Browser client
+└── server.ts           # Server client
+proxy.ts                # Auth session middleware (Next.js 16)
+```
+
+---
+
+## 🚀 Deployment
+
+This app is deployed on **Vercel**. To deploy your own:
+
+```bash
+vercel --prod
+```
+
+Make sure to set environment variables in Vercel:
+
+```
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+```
+
+---
+
+Developed by **Rashal**
